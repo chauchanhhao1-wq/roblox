@@ -1,56 +1,115 @@
--- Khởi tạo Thư viện Giao diện Rayfield
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu'))()
+-- =============================================================================
+-- DUNGEON QUEST REBORN - ADVANCED BYPASS SUPER HUB
+-- =============================================================================
+
+-- Tải thư viện UI Rayfield ổn định nhất cho thiết bị di động
+local Rayfield = loadstring(game:HttpGet('https://githubusercontent.com'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "⚔️ Dungeon Quest Reborn - Super Hub",
-   LoadingTitle = "Đang tải Script...",
+   Name = "⚔️ Dungeon Quest Reborn - Ultimate Bypass Hub",
+   LoadingTitle = "Đang tải hệ thống bảo mật...",
    LoadingSubtitle = "by Master Scripter",
-   ConfigurationSaving = {
-      Enabled = false
-   },
-   KeySystem = false -- Tắt hệ thống Key để dùng luôn cho tiện
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false -- Tắt Key để người dùng mở lên là chạy được ngay
 })
 
--- Tạo các Tab chức năng trên Menu
-local MainTab = Window:CreateTab("Main (Cày Cuốc)", 4483362458) 
-local CombatTab = Window:CreateTab("Combat (Né Chiêu)", 4483362534)
+-- Tạo các phân mục Menu dễ nhìn
+local FarmTab = Window:CreateTab("Auto Farm (Bypass)", 4483362458) 
+local MovementTab = Window:CreateTab("Di Chuyển & Né", 4483362534)
 
--- BIẾN ĐIỀU KHIỂN (TOGGLES)
-getgenv().KillAura = false
-getgenv().BringMobs = false
+-- Các biến toàn cục quản lý trạng thái Bật/Tắt
+getgenv().CameraFarmActive = false
 getgenv().AutoDodgeActive = false
-getgenv().GodMode = false
+getgenv().AntiCheatSpeedLock = false
 
----------------------------------------------------------------------------
--- TAB 1: MAIN (CÀY CUỐC & BẤT TỬ)
----------------------------------------------------------------------------
+-- Các hằng số cấu hình hệ thống né chiêu bằng Lực Vật Lý (Bypass CFrame Check)
+local DETECT_RADIUS = 25
+local DODGE_SPEED = 65
+local DODGE_DURATION = 0.3
+local DANGER_NAMES = {"indicator", "hitbox", "aoe", "warning", "redzone", "danger", "spellcircle", "bossattack", "projectile"}
 
--- Nút Bật/Tắt Kill Aura (Tự sát thương quái xung quanh)
-MainTab:CreateToggle({
-   Name = "Auto Kill Aura (Tự Đánh Quái)",
+-- =============================================================================
+-- TAB 1: AUTO FARM (BYPASS ANTI-CHEAT BẰNG CAMERA GÓC NHÌN)
+-- =============================================================================
+
+local RunService = game:GetService("RunService")
+local Camera = game.Workspace.CurrentCamera
+local Player = game.Players.LocalPlayer
+
+FarmTab:CreateToggle({
+   Name = "Auto Farm (Bypass Camera Quái Vật)",
    CurrentValue = false,
    Callback = function(Value)
-      getgenv().KillAura = Value
+      getgenv().CameraFarmActive = Value
       if Value then
          task.spawn(function()
-            while getgenv().KillAura do
+            Rayfield:Notify({Name = "Auto Farm", Content = "Đã kích hoạt chế độ Farm ẩn danh qua Camera!", Duration = 3})
+            while getgenv().CameraFarmActive do
                pcall(function()
-                  local player = game.Players.LocalPlayer
-                  local character = player.Character
-                  -- Tìm vũ khí đang cầm trong tay nhân vật
-                  local weapon = character:FindFirstChildOfClass("Tool")
+                  local character = Player.Character
+                  local weapon = character and character:FindFirstChildOfClass("Tool")
                   
-                  if weapon then
-                     -- Quét quái vật trong thư mục Enemies của game
-                     for _, mob in pairs(game.Workspace.Enemies:GetChildren()) do
-                        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
-                        local myRoot = character:FindFirstChild("HumanoidRootPart")
+                  -- Quét mục tiêu từ thư mục quái vật của trò chơi
+                  for _, mob in pairs(game.Workspace.Enemies:GetChildren()) do
+                     local mobRoot = mob:FindFirstChild("HumanoidRootPart")
+                     local mobHumanoid = mob:FindFirstChildOfClass("Humanoid")
+                     
+                     if mobRoot and mobHumanoid and mobHumanoid.Health > 0 and getgenv().CameraFarmActive do
+                        -- CHUYỂN GÓC NHÌN CHỐNG ANTI-CHEAT: Khóa camera vào quái, giữ nhân vật đứng im tại chỗ an toàn
+                        Camera.CameraType = Enum.CameraType.Scriptable
                         
-                        if mobRoot and myRoot and (myRoot.Position - mobRoot.Position).Magnitude <= 20 then
-                           -- Gửi tín hiệu chém quái về Server game
-                           weapon:Activate()
-                           task.wait(0.1)
+                        while mobHumanoid.Health > 0 and getgenv().CameraFarmActive do
+                           -- Đồng bộ vị trí góc nhìn của Camera bám theo quái vật
+                           Camera.CFrame = CFrame.new(mobRoot.Position + Vector3.new(0, 10, 12), mobRoot.Position)
+                           
+                           -- Spam lệnh vung vũ khí tấn công từ xa mà không cần dịch chuyển nhân vật
+                           if weapon then
+                              weapon:Activate()
+                           end
+                           RunService.RenderStepped:Wait()
                         end
+                     end
+                  end
+               end)
+               task.wait(0.5)
+            end
+            
+            -- TRẢ LẠI GÓC NHÌN GỐC KHI TẮT MÁY FARM
+            Camera.CameraType = Enum.CameraType.Custom
+            if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+               Camera.CameraSubject = Player.Character.Humanoid
+            end
+         end)
+      else
+         -- Dự phòng trường hợp tắt ngang xương khi đang farm, trả lại camera ngay
+         Camera.CameraType = Enum.CameraType.Custom
+         if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+            Camera.CameraSubject = Player.Character.Humanoid
+         end
+      end
+   end,
+})
+
+-- =============================================================================
+-- TAB 2: DI CHUYỂN AN TOÀN & TỰ ĐỘNG NÉ ĐÒN
+-- =============================================================================
+
+-- Nút 1: Khóa tốc độ an toàn (Mức 24 - Bằng tốc độ kỹ năng Inner Focus của game)
+MovementTab:CreateToggle({
+   Name = "Bypass Speed Lock (Giữ tốc độ 24 an toàn)",
+   CurrentValue = false,
+   Callback = function(Value)
+      getgenv().AntiCheatSpeedLock = Value
+      if Value then
+         task.spawn(function()
+            Rayfield:Notify({Name = "Speed Bypass", Content = "Đã khóa tốc độ ở mức 24 an toàn trước Anti-Cheat!", Duration = 3})
+            while getgenv().AntiCheatSpeedLock do
+               pcall(function()
+                  local character = Player.Character
+                  local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                  if humanoid and humanoid.Health > 0 then
+                     if humanoid.WalkSpeed ~= 24 then
+                        humanoid.WalkSpeed = 24
                      end
                   end
                end)
@@ -61,60 +120,7 @@ MainTab:CreateToggle({
    end,
 })
 
--- Nút Bật/Tắt Bring Mobs (Hút quái lại một chỗ)
-MainTab:CreateToggle({
-   Name = "Bring Mobs (Gom Quái Lại Gần)",
-   CurrentValue = false,
-   Callback = function(Value)
-      getgenv().BringMobs = Value
-      if Value then
-         task.spawn(function()
-            while getgenv().BringMobs do
-               pcall(function()
-                  local myRoot = game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                  if myRoot then
-                     for _, mob in pairs(game.Workspace.Enemies:GetChildren()) do
-                        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
-                        if mobRoot and (myRoot.Position - mobRoot.Position).Magnitude <= 50 then
-                           -- Dịch chuyển quái đến ngay trước mặt bạn để dễ chém
-                           mobRoot.CFrame = myRoot.CFrame * CFrame.new(0, 0, -5)
-                        end
-                     end
-                  end
-               end)
-               task.wait(0.3)
-            end
-         end)
-      end
-   end,
-})
-
--- Nút Bật/Tắt God Mode (Bất tử cơ bản bằng cách chặn nhận sát thương)
-MainTab:CreateToggle({
-   Name = "Semi-God Mode (Hạn Chế Sát Thương)",
-   CurrentValue = false,
-   Callback = function(Value)
-      getgenv().GodMode = Value
-      pcall(function()
-         local humanoid = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-         if humanoid then
-            -- Thay đổi trạng thái nhân vật để không bị dính hiệu ứng choáng/ngã của Boss
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.StrafingNoPhysics, Value)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not Value)
-         end
-      end)
-   end,
-})
-
----------------------------------------------------------------------------
--- TAB 2: COMBAT (TỰ ĐỘNG NÉ CHIÊU - CODE ĐÃ HOÀN THIỆN)
----------------------------------------------------------------------------
-
-local DETECT_RADIUS = 25
-local DODGE_SPEED = 65
-local DODGE_DURATION = 0.3
-local DANGER_NAMES = {"indicator", "hitbox", "aoe", "warning", "redzone", "danger", "spellcircle", "bossattack"}
-
+-- Hàm kiểm tra xem vật thể có phải vùng sát thương nguy hiểm không
 local function isDangerZone(object)
    if not object:IsA("BasePart") then return false end
    local objName = object.Name:lower()
@@ -127,6 +133,7 @@ local function isDangerZone(object)
    return false
 end
 
+-- Hàm lướt né đòn bằng cơ chế vật lý (Bypass cơ chế quét dịch chuyển của game)
 local function dodgeAwayFrom(dangerPosition, rootPart, humanoid)
    local currentPos = rootPart.Position
    local direction = (currentPos - dangerPosition).Unit
@@ -145,17 +152,18 @@ local function dodgeAwayFrom(dangerPosition, rootPart, humanoid)
    attachment:Destroy()
 end
 
-CombatTab:CreateToggle({
-   Name = "Auto Dodge Skill (Tự Động Né Vòng Đỏ)",
+-- Nút 2: Tự động phát hiện vòng đỏ và kích hoạt cơ chế lướt vật lý né chiêu
+MovementTab:CreateToggle({
+   Name = "Auto Dodge Skill (Lướt né vòng đỏ bằng Vật lý)",
    CurrentValue = false,
    Callback = function(Value)
       getgenv().AutoDodgeActive = Value
       if Value then
          task.spawn(function()
-            Rayfield:Notify({Name = "Auto Dodge", Content = "Đã kích hoạt né chiêu thông minh!", Duration = 3})
+            Rayfield:Notify({Name = "Auto Dodge", Content = "Đã bật quét chiêu thức quái vật toàn thời gian!", Duration = 3})
             while getgenv().AutoDodgeActive do
                pcall(function()
-                  local character = game.Players.LocalPlayer.Character
+                  local character = Player.Character
                   local rootPart = character:FindFirstChild("HumanoidRootPart")
                   local humanoid = character:FindFirstChildOfClass("Humanoid")
                   if not rootPart or not humanoid or humanoid.Health <= 0 then return end
@@ -165,7 +173,7 @@ CombatTab:CreateToggle({
                         local distance = (rootPart.Position - obj.Position).Magnitude
                         if distance <= DETECT_RADIUS then
                            dodgeAwayFrom(obj.Position, rootPart, humanoid)
-                           task.wait(0.4)
+                           task.wait(0.4) -- Khoảng nghỉ ngắn chống spam lực đẩy làm văng nhân vật
                            break
                         end
                      end
@@ -177,3 +185,4 @@ CombatTab:CreateToggle({
       end
    end,
 })
+   
