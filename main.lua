@@ -1,27 +1,22 @@
 -- =====================================================
---   🤖 NOVA AUTO COMBAT - DUNGEON QUEST REBORN v5.0
---   Tự động: Di chuyển → Phân tích → Tung skill → Né đòn + TP
+--   ✦ NEBULA HUB - DUNGEON QUEST REBORN ✦
+--   UI Pro | Tối ưu mobile | Auto Combat Pro
 -- =====================================================
 
 local player = game.Players.LocalPlayer
 local uis = game:GetService("UserInputService")
 local vu = game:GetService("VirtualUser")
 local ws = game:GetService("Workspace")
-local rs = game:GetService("RunService")
-local tps = game:GetService("TweenService")
+local ts = game:GetService("TweenService")
 
 -- ====== CẤU HÌNH ======
 local Config = {
     AutoFarm = true,
     AutoSkill = true,
-    AutoDodge = true,
-    AutoHeal = true,
-    AutoTP = true,          -- Bật/tắt Teleport né đòn
+    AutoTP = true,
     WalkSpeed = 23,
     FarmRange = 120,
-    DodgeChance = 60,
-    HealThreshold = 40,
-    TPRange = 50,           -- Khoảng cách TP tối đa
+    TPRange = 40,
 }
 
 -- ====== BIẾN TOÀN CỤ ======
@@ -32,8 +27,7 @@ local currentTarget = nil
 local lastDodgeTime = 0
 local lastTPTime = 0
 local skillCooldown = {}
-local isFighting = false
-local dodgeFailCount = 0
+local gui = nil
 
 -- ====== HÀM LẤY NHÂN VẬT ======
 local function getChar()
@@ -45,244 +39,431 @@ local function getChar()
     return char, hum, root
 end
 
--- ====== PHÂN TÍCH QUÁI ======
-local function analyzeEnemy(enemy)
-    if not enemy or not enemy:FindFirstChild("Humanoid") then return nil end
-    
-    local enemyHum = enemy.Humanoid
-    local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
-    
-    if not enemyRoot or enemyHum.Health <= 0 then return nil end
-    
-    local info = {
-        Name = enemy.Name,
-        Health = enemyHum.Health,
-        MaxHealth = enemyHum.MaxHealth,
-        Position = enemyRoot.Position,
-        Distance = root and (enemyRoot.Position - root.Position).Magnitude or 999,
-        IsBoss = enemy.Name:lower():find("boss") or enemy.Name:lower():find("king") or false,
-        HealthPercent = (enemyHum.Health / enemyHum.MaxHealth) * 100,
-        IsDangerous = (enemyHum.Health / enemyHum.MaxHealth) > 0.7,
-    }
-    
-    return info
-end
-
--- ====== TÌM QUÁI MỤC TIÊU ======
-local function findBestTarget()
+-- ====== ĐỊNH VỊ QUÁI ======
+local function findNearestEnemy()
     local char, hum, root = getChar()
     if not char or not root then return nil end
-    
-    local bestTarget = nil
-    local bestScore = -math.huge
-    
+    local nearest, minDist = nil, math.huge
     for _, v in pairs(ws:GetChildren()) do
         if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= char then
-            local info = analyzeEnemy(v)
-            if info and info.Distance < Config.FarmRange then
-                local score = 1000 / (info.Distance + 1)
-                score = score + (100 - info.HealthPercent) * 2
-                if info.IsBoss then score = score + 500 end
-                
-                if score > bestScore then
-                    bestScore = score
-                    bestTarget = v
+            local target = v:FindFirstChild("HumanoidRootPart")
+            if target and v.Humanoid.Health > 0 then
+                local dist = (target.Position - root.Position).Magnitude
+                if dist < minDist and dist < Config.FarmRange then
+                    minDist = dist
+                    nearest = v
                 end
             end
         end
     end
-    
-    return bestTarget
+    return nearest, minDist
 end
 
--- ====== LẤY SKILL ======
-local function getAvailableSkills()
+-- ====== SPAM SKILL ======
+local function spamSkills()
+    if not Config.AutoSkill or not hum then return end
     local skills = {}
-    if char then
-        for _, tool in pairs(char:GetChildren()) do
-            if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
-                local cd = skillCooldown[tool.Name] or 0
-                if tick() - cd > 1.5 then
-                    local skillType = "Normal"
-                    if tool.Name:lower():find("ulti") or tool.Name:lower():find("ult") then
-                        skillType = "Ultimate"
-                    elseif tool.Name:lower():find("heal") or tool.Name:lower():find("health") then
-                        skillType = "Heal"
-                    elseif tool.Name:lower():find("shield") or tool.Name:lower():find("def") then
-                        skillType = "Defense"
-                    elseif tool.Name:lower():find("teleport") or tool.Name:lower():find("tp") or tool.Name:lower():find("blink") then
-                        skillType = "Teleport"
-                    end
-                    
-                    table.insert(skills, {
-                        Tool = tool,
-                        Name = tool.Name,
-                        Type = skillType,
-                        Priority = skillType == "Ultimate" and 1 or 
-                                   skillType == "Heal" and 2 or 
-                                   skillType == "Defense" and 3 or
-                                   skillType == "Teleport" and 4 or 5
-                    })
-                end
-            end
-        end
-        table.sort(skills, function(a, b) return a.Priority < b.Priority end)
-    end
-    return skills
-end
-
--- ====== TUNG SKILL ======
-local function useSkills(target, forceHeal)
-    if not target or not target.HumanoidRootPart then return end
-    
-    local targetPos = target.HumanoidRootPart.Position
-    local dist = root and (targetPos - root.Position).Magnitude or 999
-    
-    local skills = getAvailableSkills()
-    for _, skillData in ipairs(skills) do
-        local skill = skillData.Tool
-        if skill then
-            local shouldUse = false
-            
-            if skillData.Type == "Ultimate" then
-                shouldUse = dist < 30
-            elseif skillData.Type == "Heal" then
-                if forceHeal or (hum and (hum.Health / hum.MaxHealth) * 100 < Config.HealThreshold) then
-                    shouldUse = true
-                end
-            elseif skillData.Type == "Defense" then
-                shouldUse = dist < 15 and Config.AutoDodge
-            elseif skillData.Type == "Teleport" then
-                shouldUse = false -- Teleport dùng riêng để né
-            else
-                shouldUse = dist < 40
-            end
-            
-            if shouldUse then
-                hum:EquipTool(skill)
-                task.wait(0.05)
-                vu:ClickButton1(Vector2.new())
-                skillCooldown[skill.Name] = tick()
-                break
+    for _, tool in pairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            local cd = skillCooldown[tool.Name] or 0
+            if tick() - cd > 0.5 then
+                table.insert(skills, tool)
             end
         end
     end
+    for _, skill in ipairs(skills) do
+        hum:EquipTool(skill)
+        task.wait(0.05)
+        vu:ClickButton1(Vector2.new())
+        skillCooldown[skill.Name] = tick()
+    end
 end
 
--- ====== 2. NÉ ĐÒN BẰNG TELEPORT ======
-local function teleportDodge(target, info)
+-- ====== TP KHI NÉ ======
+local function teleportDodge(target, dist)
     if not Config.AutoTP or not root then return false end
     if not target or not target.HumanoidRootPart then return false end
-    
-    -- Kiểm tra cooldown TP
-    if tick() - lastTPTime < 2 then return false end
-    
-    -- Điều kiện dùng TP né:
-    local shouldTP = false
-    
-    -- 1. Quái ở quá gần và nguy hiểm
-    if info and info.Distance < 10 then
-        shouldTP = true
-    end
-    
-    -- 2. Boss sắp tung skill (giả lập)
-    if info and info.IsBoss and info.Distance < 20 and math.random(1, 100) < 30 then
-        shouldTP = true
-    end
-    
-    -- 3. Né bình thường thất bại nhiều lần
-    if dodgeFailCount > 3 then
-        shouldTP = true
-        dodgeFailCount = 0
-    end
-    
-    if shouldTP then
-        -- Tìm vị trí TP an toàn (xung quanh quái nhưng đủ xa)
+    if tick() - lastTPTime < 1.5 then return false end
+    if dist < 12 then
         local angle = math.rad(math.random(0, 360))
         local randomDir = Vector3.new(math.cos(angle), 0, math.sin(angle))
         local tpPos = target.HumanoidRootPart.Position + randomDir * Config.TPRange
-        
-        -- Đảm bảo TP trong phạm vi cho phép
-        local dist = (tpPos - root.Position).Magnitude
-        if dist < 100 then -- Giới hạn TP
-            -- Dùng skill Teleport nếu có
-            local skills = getAvailableSkills()
-            for _, skillData in ipairs(skills) do
-                if skillData.Type == "Teleport" then
-                    hum:EquipTool(skillData.Tool)
-                    task.wait(0.05)
-                    vu:ClickButton1(Vector2.new())
-                    skillCooldown[skillData.Name] = tick()
-                    lastTPTime = tick()
-                    
-                    -- Di chuyển đến vị trí an toàn
-                    hum:MoveTo(tpPos)
-                    
-                    -- Hiệu ứng TP (chỉ hiển thị)
-                    local tpEffect = Instance.new("Part")
-                    tpEffect.Size = Vector3.new(2, 2, 2)
-                    tpEffect.Position = root.Position
-                    tpEffect.Anchored = true
-                    tpEffect.CanCollide = false
-                    tpEffect.Material = Enum.Material.Neon
-                    tpEffect.BrickColor = BrickColor.new("Bright blue")
-                    tpEffect.Parent = ws
-                    
-                    task.spawn(function()
-                        task.wait(0.3)
-                        tpEffect:Destroy()
-                    end)
-                    
-                    print("🌀 Teleport né đòn thành công!")
-                    return true
-                end
+        local hasTP = false
+        for _, tool in pairs(char:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name:lower():find("teleport") or tool.Name:lower():find("tp") or tool.Name:lower():find("blink")) then
+                hum:EquipTool(tool)
+                task.wait(0.05)
+                vu:ClickButton1(Vector2.new())
+                hasTP = true
+                break
             end
-            
-            -- Nếu không có skill Teleport, dùng CFrame để dịch chuyển
-            root.CFrame = CFrame.new(tpPos)
-            lastTPTime = tick()
-            print("🌀 Instant TP né đòn!")
-            return true
         end
+        if not hasTP then
+            root.CFrame = CFrame.new(tpPos)
+        end
+        lastTPTime = tick()
+        return true
     end
-    
     return false
 end
 
--- ====== 1. NÉ ĐÒN THÔNG THƯỜNG ======
-local function normalDodge(target, info)
-    if not Config.AutoDodge or not root or not hum then return false end
-    if not target or not target.HumanoidRootPart then return false end
-    
-    local shouldDodge = false
-    
-    if info and info.Distance < 20 then
-        if math.random(1, 100) < Config.DodgeChance then
-            shouldDodge = true
-        end
-    end
-    
-    if info and info.IsBoss and info.Distance < 25 then
-        shouldDodge = true
-    end
-    
-    if shouldDodge and tick() - lastDodgeTime > 0.8 then
-        local angle = math.rad(math.random(30, 150))
+-- ====== NÉ THƯỜNG ======
+local function normalDodge(target, dist)
+    if not root or not hum then return false end
+    if tick() - lastDodgeTime < 0.3 then return false end
+    if dist < 20 then
+        local angle = math.rad(math.random(0, 360))
         local randomDir = Vector3.new(math.cos(angle), 0, math.sin(angle))
-        local dodgePos = target.HumanoidRootPart.Position + randomDir * 15 + Vector3.new(0, 2, 0)
-        hum:MoveTo(dodgePos)
-        
-        if math.random(1, 100) < 30 then
-            hum.Jump = true
-        end
-        
+        hum.Jump = true
+        hum:MoveTo(target.HumanoidRootPart.Position + randomDir * 12)
         lastDodgeTime = tick()
-        dodgeFailCount = 0 -- Reset fail count khi né thành công
         return true
     end
+    return false
+end
+
+local function smartDodge(target, dist)
+    if not target then return end
+    if not normalDodge(target, dist) or dist < 8 then
+        teleportDodge(target, dist)
+    end
+end
+
+-- ====== AUTO FARM ======
+local function autoFarm()
+    task.spawn(function()
+        while true do
+            task.wait(0.15)
+            if not Config.AutoFarm then task.wait(1) continue end
+            local char, hum, root = getChar()
+            if not char or not hum or not root then continue end
+            local target, dist = findNearestEnemy()
+            currentTarget = target
+            if target then
+                smartDodge(target, dist)
+                if dist > 10 then
+                    hum:MoveTo(target.HumanoidRootPart.Position)
+                end
+                spamSkills()
+                vu:ClickButton1(Vector2.new())
+            end
+        end
+    end)
+end
+
+-- ====== SPEED & ANTI AFK ======
+local function speedLoop()
+    task.spawn(function()
+        while true do
+            task.wait(0.15)
+            local char, hum = getChar()
+            if char and hum then
+                hum.WalkSpeed = Config.WalkSpeed
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end
+        end
+    end)
+end
+
+-- =====================================================
+--   ✦ UI PRO - NEBULA HUB (TỐI ƯU MOBILE) ✦
+-- =====================================================
+
+local function createUI()
+    gui = Instance.new("ScreenGui")
+    gui.Name = "NebulaHub"
+    gui.Parent = player:WaitForChild("PlayerGui")
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     
-    -- Nếu không né được, tăng fail count
-    dodgeFailCount = dodgeFailCount + 1
+    -- Main Frame - bo tròn, trong suốt
+    local main = Instance.new("Frame")
+    main.Size = UDim2.new(0, 280, 0, 380)
+    main.Position = UDim2.new(0.5, -140, 0.25, 0)
+    main.BackgroundColor3 = Color3.fromRGB(12, 12, 28)
+    main.BackgroundTransparency = 0.08
+    main.Parent = gui
+    main.ClipsDescendants = true
+    
+    -- Đổ bóng
+    local shadow = Instance.new("ImageLabel")
+    shadow.Size = UDim2.new(1, 20, 1, 20)
+    shadow.Position = UDim2.new(0, -10, 0, -10)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://1316045230"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.5
+    shadow.Parent = main
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = main
+    
+    -- Thanh viền Neon
+    local border = Instance.new("Frame")
+    border.Size = UDim2.new(1, 0, 0, 2)
+    border.Position = UDim2.new(0, 0, 0, 0)
+    border.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+    border.BackgroundTransparency = 0.3
+    border.Parent = main
+    
+    -- Header với gradient
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 45)
+    header.BackgroundColor3 = Color3.fromRGB(25, 25, 50)
+    header.BackgroundTransparency = 0.2
+    header.Parent = main
+    
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 16)
+    headerCorner.Parent = header
+    
+    -- Icon + Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0.7, 0, 1, 0)
+    title.Position = UDim2.new(0.05, 0, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "✦ NEBULA HUB"
+    title.TextColor3 = Color3.fromRGB(0, 200, 255)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBold
+    title.Parent = header
+    
+    -- Version
+    local ver = Instance.new("TextLabel")
+    ver.Size = UDim2.new(0.2, 0, 0.5, 0)
+    ver.Position = UDim2.new(0.7, 0, 0.25, 0)
+    ver.BackgroundTransparency = 1
+    ver.Text = "v2.0"
+    ver.TextColor3 = Color3.fromRGB(150, 150, 200)
+    ver.TextScaled = true
+    ver.Font = Enum.Font.GothamMedium
+    ver.Parent = header
+    
+    -- Nút đóng
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0, 28, 0, 28)
+    close.Position = UDim2.new(1, -36, 0, 8)
+    close.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    close.Text = "✕"
+    close.TextColor3 = Color3.fromRGB(255, 255, 255)
+    close.TextScaled = true
+    close.Font = Enum.Font.GothamBold
+    close.Parent = header
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = close
+    
+    close.MouseButton1Click:Connect(function()
+        gui:Destroy()
+    end)
+    
+    -- Body (chứa toggle)
+    local body = Instance.new("Frame")
+    body.Size = UDim2.new(1, -20, 0, 240)
+    body.Position = UDim2.new(0, 10, 0, 55)
+    body.BackgroundTransparency = 1
+    body.Parent = main
+    
+    -- Hàm tạo toggle đẹp (dạng switch)
+    local function createToggle(y, text, key, def, icon)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 42)
+        frame.Position = UDim2.new(0, 0, 0, y)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 55)
+        frame.BackgroundTransparency = 0.4
+        frame.Parent = body
+        
+        local frameCorner = Instance.new("UICorner")
+        frameCorner.CornerRadius = UDim.new(0, 10)
+        frameCorner.Parent = frame
+        
+        -- Icon
+        local iconLabel = Instance.new("TextLabel")
+        iconLabel.Size = UDim2.new(0, 30, 0, 30)
+        iconLabel.Position = UDim2.new(0, 8, 0.5, -15)
+        iconLabel.BackgroundTransparency = 1
+        iconLabel.Text = icon or "◆"
+        iconLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+        iconLabel.TextScaled = true
+        iconLabel.Parent = frame
+        
+        -- Label
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.5, 0, 1, 0)
+        label.Position = UDim2.new(0, 45, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.fromRGB(220, 220, 255)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextScaled = true
+        label.Font = Enum.Font.GothamMedium
+        label.Parent = frame
+        
+        -- Switch
+        local switch = Instance.new("TextButton")
+        switch.Size = UDim2.new(0, 50, 0, 26)
+        switch.Position = UDim2.new(0.88, -25, 0.5, -13)
+        switch.BackgroundColor3 = def and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(180, 50, 60)
+        switch.Text = def and "ON" or "OFF"
+        switch.TextColor3 = Color3.fromRGB(255, 255, 255)
+        switch.TextScaled = true
+        switch.Font = Enum.Font.GothamBold
+        switch.Parent = frame
+        
+        local switchCorner = Instance.new("UICorner")
+        switchCorner.CornerRadius = UDim.new(0, 8)
+        switchCorner.Parent = switch
+        
+        local state = def
+        switch.MouseButton1Click:Connect(function()
+            state = not state
+            Config[key] = state
+            switch.BackgroundColor3 = state and Color3.fromRGB(0, 200, 120) or Color3.fromRGB(180, 50, 60)
+            switch.Text = state and "ON" or "OFF"
+            if key == "AutoFarm" and state then autoFarm() end
+        end)
+        
+        return switch
+    end
+    
+    -- Tạo các toggle với icon
+    createToggle(0, "Auto Farm", "AutoFarm", true, "⚔️")
+    createToggle(48, "Auto Skill", "AutoSkill", true, "🌀")
+    createToggle(96, "Auto TP Dodge", "AutoTP", true, "🌊")
+    
+    -- Status bar (đẹp hơn)
+    local statusFrame = Instance.new("Frame")
+    statusFrame.Size = UDim2.new(1, 0, 0, 35)
+    statusFrame.Position = UDim2.new(0, 0, 0, 148)
+    statusFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 45)
+    statusFrame.BackgroundTransparency = 0.4
+    statusFrame.Parent = body
+    
+    local statusCorner = Instance.new("UICorner")
+    statusCorner.CornerRadius = UDim.new(0, 10)
+    statusCorner.Parent = statusFrame
+    
+    local statusIcon = Instance.new("TextLabel")
+    statusIcon.Size = UDim2.new(0, 25, 0, 25)
+    statusIcon.Position = UDim2.new(0, 8, 0.5, -12.5)
+    statusIcon.BackgroundTransparency = 1
+    statusIcon.Text = "📡"
+    statusIcon.TextScaled = true
+    statusIcon.Parent = statusFrame
+    
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(0.8, 0, 1, 0)
+    status.Position = UDim2.new(0, 40, 0, 0)
+    status.BackgroundTransparency = 1
+    status.Text = "Đang tìm quái..."
+    status.TextColor3 = Color3.fromRGB(200, 200, 255)
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.TextScaled = true
+    status.Font = Enum.Font.GothamMedium
+    status.Parent = statusFrame
+    
+    -- Cập nhật status
+    task.spawn(function()
+        while true do
+            task.wait(0.3)
+            if currentTarget then
+                status.Text = "⚔️ " .. currentTarget.Name
+                statusIcon.Text = "⚔️"
+            else
+                status.Text = "Đang tìm quái..."
+                statusIcon.Text = "📡"
+            end
+        end
+    end)
+    
+    -- Footer
+    local footer = Instance.new("Frame")
+    footer.Size = UDim2.new(1, 0, 0, 28)
+    footer.Position = UDim2.new(0, 0, 1, -28)
+    footer.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+    footer.BackgroundTransparency = 0.3
+    footer.Parent = main
+    
+    local footerCorner = Instance.new("UICorner")
+    footerCorner.CornerRadius = UDim.new(0, 16)
+    footerCorner.Parent = footer
+    
+    local footerText = Instance.new("TextLabel")
+    footerText.Size = UDim2.new(1, 0, 1, 0)
+    footerText.BackgroundTransparency = 1
+    footerText.Text = "✦ F9 toggle | 🌙 Nebula Hub"
+    footerText.TextColor3 = Color3.fromRGB(150, 150, 200)
+    footerText.TextScaled = true
+    footerText.Font = Enum.Font.GothamMedium
+    footerText.Parent = footer
+    
+    -- Nút toggle nhỏ gọn
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 60, 0, 24)
+    toggleBtn.Position = UDim2.new(1, -68, 1, -26)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+    toggleBtn.Text = "▶"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.TextScaled = true
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.Parent = main
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 6)
+    toggleCorner.Parent = toggleBtn
+    
+    -- Thu gọn/mở rộng UI
+    local isMinimized = false
+    toggleBtn.MouseButton1Click:Connect(function()
+        isMinimized = not isMinimized
+        if isMinimized then
+            main.Size = UDim2.new(0, 280, 0, 60)
+            body.Visible = false
+            footer.Visible = false
+            toggleBtn.Text = "◀"
+        else
+            main.Size = UDim2.new(0, 280, 0, 380)
+            body.Visible = true
+            footer.Visible = true
+            toggleBtn.Text = "▶"
+        end
+    end)
+    
+    return gui
+end
+
+-- ====== KHỞI TẠO ======
+createUI()
+speedLoop()
+autoFarm()
+
+player.CharacterAdded:Connect(function(c)
+    char = c
+    hum = c:WaitForChild("Humanoid")
+    root = c:WaitForChild("HumanoidRootPart")
+    task.wait(1)
+    speedLoop()
+    if Config.AutoFarm then autoFarm() end
+end)
+
+if getChar() then
+    if Config.AutoFarm then autoFarm() end
+end
+
+-- F9 Toggle
+uis.InputBegan:Connect(function(input, gp)
+    if input.KeyCode == Enum.KeyCode.F9 and not gp then
+        local g = player.PlayerGui:FindFirstChild("NebulaHub")
+        if g then g.Enabled = not g.Enabled end
+    end
+end)
+
+print("✦ Nebula Hub loaded!")
+print("📌 Press F9 to toggle GUI")
+print("🌙 UI Pro | Tối ưu Mobile")lCount = dodgeFailCount + 1
     return false
 end
 
