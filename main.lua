@@ -1,188 +1,222 @@
--- =============================================================================
--- DUNGEON QUEST REBORN - ADVANCED BYPASS SUPER HUB
--- =============================================================================
+-- ====== Cấu Hình ======
+local player = game.Players.LocalPlayer
+local uis = game:GetService("UserInputService")
+local vu = game:GetService("VirtualUser")
 
--- Tải thư viện UI Rayfield ổn định nhất cho thiết bị di động
-local Rayfield = loadstring(game:HttpGet('https://githubusercontent.com'))()
+local Config = {
+    WalkSpeed = 23,          -- Tốc độ di chuyển
+    HealThreshold = 50,      -- Ngưỡng máu để tự động hồi (%)
+    AutoFarm = false,        -- Bật/tắt Auto Farm
+    AutoDungeon = false,     -- Bật/tắt Auto Dungeon
+    AutoHeal = false,        -- Bật/tắt Auto Heal
+    SpeedHack = false,       -- Bật/tắt Speed Hack
+    ESP = false,             -- Bật/tắt ESP
+    AntiAFK = true           -- Bật/tắt chống AFK
+}
 
-local Window = Rayfield:CreateWindow({
-   Name = "⚔️ Dungeon Quest Reborn - Ultimate Bypass Hub",
-   LoadingTitle = "Đang tải hệ thống bảo mật...",
-   LoadingSubtitle = "by Master Scripter",
-   ConfigurationSaving = { Enabled = false },
-   KeySystem = false -- Tắt Key để người dùng mở lên là chạy được ngay
-})
+-- ====== Hàm lấy nhân vật ======
+local function getChar()
+    local char = player.Character
+    if char then
+        return char, char:FindFirstChild("Humanoid"), char:FindFirstChild("HumanoidRootPart")
+    end
+    return nil, nil, nil
+end
 
--- Tạo các phân mục Menu dễ nhìn
-local FarmTab = Window:CreateTab("Auto Farm (Bypass)", 4483362458) 
-local MovementTab = Window:CreateTab("Di Chuyển & Né", 4483362534)
+-- ====== Speed Hack & Chống AFK ======
+task.spawn(function()
+    while true do
+        task.wait(0.15)
+        local char, hum = getChar()
+        if char and hum then
+            if Config.SpeedHack and Config.WalkSpeed then
+                hum.WalkSpeed = Config.WalkSpeed
+            end
+            if Config.AntiAFK then
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end
+        end
+    end
+end)
 
--- Các biến toàn cục quản lý trạng thái Bật/Tắt
-getgenv().CameraFarmActive = false
-getgenv().AutoDodgeActive = false
-getgenv().AntiCheatSpeedLock = false
-
--- Các hằng số cấu hình hệ thống né chiêu bằng Lực Vật Lý (Bypass CFrame Check)
-local DETECT_RADIUS = 25
-local DODGE_SPEED = 65
-local DODGE_DURATION = 0.3
-local DANGER_NAMES = {"indicator", "hitbox", "aoe", "warning", "redzone", "danger", "spellcircle", "bossattack", "projectile"}
-
--- =============================================================================
--- TAB 1: AUTO FARM (BYPASS ANTI-CHEAT BẰNG CAMERA GÓC NHÌN)
--- =============================================================================
-
-local RunService = game:GetService("RunService")
-local Camera = game.Workspace.CurrentCamera
-local Player = game.Players.LocalPlayer
-
-FarmTab:CreateToggle({
-   Name = "Auto Farm (Bypass Camera Quái Vật)",
-   CurrentValue = false,
-   Callback = function(Value)
-      getgenv().CameraFarmActive = Value
-      if Value then
-         task.spawn(function()
-            Rayfield:Notify({Name = "Auto Farm", Content = "Đã kích hoạt chế độ Farm ẩn danh qua Camera!", Duration = 3})
-            while getgenv().CameraFarmActive do
-               pcall(function()
-                  local character = Player.Character
-                  local weapon = character and character:FindFirstChildOfClass("Tool")
-                  
-                  -- Quét mục tiêu từ thư mục quái vật của trò chơi
-                  for _, mob in pairs(game.Workspace.Enemies:GetChildren()) do
-                     local mobRoot = mob:FindFirstChild("HumanoidRootPart")
-                     local mobHumanoid = mob:FindFirstChildOfClass("Humanoid")
-                     
-                     if mobRoot and mobHumanoid and mobHumanoid.Health > 0 and getgenv().CameraFarmActive do
-                        -- CHUYỂN GÓC NHÌN CHỐNG ANTI-CHEAT: Khóa camera vào quái, giữ nhân vật đứng im tại chỗ an toàn
-                        Camera.CameraType = Enum.CameraType.Scriptable
-                        
-                        while mobHumanoid.Health > 0 and getgenv().CameraFarmActive do
-                           -- Đồng bộ vị trí góc nhìn của Camera bám theo quái vật
-                           Camera.CFrame = CFrame.new(mobRoot.Position + Vector3.new(0, 10, 12), mobRoot.Position)
-                           
-                           -- Spam lệnh vung vũ khí tấn công từ xa mà không cần dịch chuyển nhân vật
-                           if weapon then
-                              weapon:Activate()
-                           end
-                           RunService.RenderStepped:Wait()
+-- ====== Auto Heal ======
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if Config.AutoHeal then
+            local char, hum = getChar()
+            if char and hum then
+                local healthPercent = (hum.Health / hum.MaxHealth) * 100
+                if healthPercent < Config.HealThreshold then
+                    for _, item in pairs(player.Backpack:GetChildren()) do
+                        if item:IsA("Tool") and (item.Name:lower():find("health") or item.Name:lower():find("potion")) then
+                            hum:EquipTool(item)
+                            task.wait(0.2)
+                            vu:ClickButton1(Vector2.new())
+                            break
                         end
-                     end
-                  end
-               end)
-               task.wait(0.5)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ====== Auto Farm & Dungeon ======
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        local char, hum, root = getChar()
+        if not char or not hum or not root then continue end
+        
+        -- 1. Auto Farm: Tìm quái gần nhất để tấn công
+        if Config.AutoFarm then
+            local nearest, minDist = nil, math.huge
+            for _, v in pairs(game.Workspace:GetChildren()) do
+                if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= char then
+                    local target = v:FindFirstChild("HumanoidRootPart")
+                    if target and v.Humanoid.Health > 0 then
+                        local dist = (target.Position - root.Position).Magnitude
+                        if dist < minDist and dist < 100 then
+                            minDist = dist
+                            nearest = v
+                        end
+                    end
+                end
             end
             
-            -- TRẢ LẠI GÓC NHÌN GỐC KHI TẮT MÁY FARM
-            Camera.CameraType = Enum.CameraType.Custom
-            if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-               Camera.CameraSubject = Player.Character.Humanoid
+            if nearest and nearest.HumanoidRootPart then
+                hum:MoveTo(nearest.HumanoidRootPart.Position)
+                vu:ClickButton1(Vector2.new()) -- Tấn công
             end
-         end)
-      else
-         -- Dự phòng trường hợp tắt ngang xương khi đang farm, trả lại camera ngay
-         Camera.CameraType = Enum.CameraType.Custom
-         if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-            Camera.CameraSubject = Player.Character.Humanoid
-         end
-      end
-   end,
-})
-
--- =============================================================================
--- TAB 2: DI CHUYỂN AN TOÀN & TỰ ĐỘNG NÉ ĐÒN
--- =============================================================================
-
--- Nút 1: Khóa tốc độ an toàn (Mức 24 - Bằng tốc độ kỹ năng Inner Focus của game)
-MovementTab:CreateToggle({
-   Name = "Bypass Speed Lock (Giữ tốc độ 24 an toàn)",
-   CurrentValue = false,
-   Callback = function(Value)
-      getgenv().AntiCheatSpeedLock = Value
-      if Value then
-         task.spawn(function()
-            Rayfield:Notify({Name = "Speed Bypass", Content = "Đã khóa tốc độ ở mức 24 an toàn trước Anti-Cheat!", Duration = 3})
-            while getgenv().AntiCheatSpeedLock do
-               pcall(function()
-                  local character = Player.Character
-                  local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                  if humanoid and humanoid.Health > 0 then
-                     if humanoid.WalkSpeed ~= 24 then
-                        humanoid.WalkSpeed = 24
-                     end
-                  end
-               end)
-               task.wait(0.1)
+        end
+        
+        -- 2. Auto Dungeon: Tìm portal để vào dungeon mới
+        if Config.AutoDungeon then
+            for _, v in pairs(game.Workspace:GetChildren()) do
+                if v:IsA("BasePart") and (v.Name:lower():find("portal") or v.Name:lower():find("start")) then
+                    if (v.Position - root.Position).Magnitude < 20 then
+                        fireclickdetector(v:FindFirstChildOfClass("ClickDetector") or v)
+                    elseif Config.AutoFarm == false then -- Chỉ di chuyển nếu không có quái để farm
+                        hum:MoveTo(v.Position)
+                    end
+                end
             end
-         end)
-      end
-   end,
-})
+        end
+    end
+end)
 
--- Hàm kiểm tra xem vật thể có phải vùng sát thương nguy hiểm không
-local function isDangerZone(object)
-   if not object:IsA("BasePart") then return false end
-   local objName = object.Name:lower()
-   for _, name in ipairs(DANGER_NAMES) do
-      if objName:find(name) then return true end
-   end
-   if object.BrickColor.Name == "Bright red" or object.BrickColor.Name == "Deep orange" then
-      if object.Transparency < 1 then return true end
-   end
-   return false
+-- ====== ESP ======
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if Config.ESP then
+            for _, v in pairs(game.Workspace:GetChildren()) do
+                if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= player.Character then
+                    if not v:FindFirstChild("ESPTag") then
+                        local bill = Instance.new("BillboardGui")
+                        bill.Name = "ESPTag"
+                        bill.Size = UDim2.new(0, 150, 0, 30)
+                        bill.Adornee = v.HumanoidRootPart
+                        bill.AlwaysOnTop = true
+                        bill.Parent = v
+                        
+                        local label = Instance.new("TextLabel")
+                        label.Size = UDim2.new(1, 0, 1, 0)
+                        label.BackgroundTransparency = 1
+                        label.Text = v.Name .. " | ❤️ " .. v.Humanoid.Health
+                        label.TextColor3 = Color3.fromRGB(255, 0, 0)
+                        label.TextScaled = true
+                        label.Parent = bill
+                    end
+                end
+            end
+        else
+            -- Xóa ESP khi tắt
+            for _, v in pairs(game.Workspace:GetChildren()) do
+                if v:FindFirstChild("ESPTag") then
+                    v.ESPTag:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+-- ====== GUI ======
+local gui = Instance.new("ScreenGui")
+gui.Name = "NovaLight"
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 200, 0, 250)
+frame.Position = UDim2.new(0.5, -100, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+frame.BackgroundTransparency = 0.05
+frame.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = frame
+
+local title = Instance.new("TextButton")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+title.Text = "⚡ Nova Light"
+title.TextColor3 = Color3.fromRGB(255, 200, 50)
+title.TextScaled = true
+title.Parent = frame
+
+-- Hàm tạo toggle
+local function createToggle(y, text, key, default)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 28)
+    btn.Position = UDim2.new(0.05, 0, 0, y)
+    btn.BackgroundColor3 = default and Color3.fromRGB(0, 200, 50) or Color3.fromRGB(200, 50, 0)
+    btn.Text = text .. ": " .. (default and "ON" or "OFF")
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextScaled = true
+    btn.Parent = frame
+    
+    local state = default
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        Config[key] = state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 50) or Color3.fromRGB(200, 50, 0)
+        btn.Text = text .. ": " .. (state and "ON" or "OFF")
+    end)
+    return btn
 end
 
--- Hàm lướt né đòn bằng cơ chế vật lý (Bypass cơ chế quét dịch chuyển của game)
-local function dodgeAwayFrom(dangerPosition, rootPart, humanoid)
-   local currentPos = rootPart.Position
-   local direction = (currentPos - dangerPosition).Unit
-   direction = Vector3.new(direction.X, 0, direction.Z).Unit
-   
-   local attachment = Instance.new("Attachment", rootPart)
-   local linearVelocity = Instance.new("LinearVelocity")
-   linearVelocity.MaxForce = 99999
-   linearVelocity.VectorVelocity = direction * DODGE_SPEED
-   linearVelocity.Attachment0 = attachment
-   linearVelocity.Parent = rootPart
-   
-   humanoid:MoveTo(currentPos + (direction * 15))
-   task.wait(DODGE_DURATION)
-   linearVelocity:Destroy()
-   attachment:Destroy()
-end
+-- Tạo các toggle
+createToggle(40, "⚔️ Auto Farm", "AutoFarm", false)
+createToggle(75, "🏰 Auto Dungeon", "AutoDungeon", false)
+createToggle(110, "❤️ Auto Heal", "AutoHeal", false)
+createToggle(145, "⚡ Speed Hack", "SpeedHack", true)
+createToggle(180, "👁️ ESP", "ESP", false)
+createToggle(215, "💤 Anti AFK", "AntiAFK", true)
 
--- Nút 2: Tự động phát hiện vòng đỏ và kích hoạt cơ chế lướt vật lý né chiêu
-MovementTab:CreateToggle({
-   Name = "Auto Dodge Skill (Lướt né vòng đỏ bằng Vật lý)",
-   CurrentValue = false,
-   Callback = function(Value)
-      getgenv().AutoDodgeActive = Value
-      if Value then
-         task.spawn(function()
-            Rayfield:Notify({Name = "Auto Dodge", Content = "Đã bật quét chiêu thức quái vật toàn thời gian!", Duration = 3})
-            while getgenv().AutoDodgeActive do
-               pcall(function()
-                  local character = Player.Character
-                  local rootPart = character:FindFirstChild("HumanoidRootPart")
-                  local humanoid = character:FindFirstChildOfClass("Humanoid")
-                  if not rootPart or not humanoid or humanoid.Health <= 0 then return end
-                  
-                  for _, obj in ipairs(game.Workspace:GetChildren()) do
-                     if isDangerZone(obj) then
-                        local distance = (rootPart.Position - obj.Position).Magnitude
-                        if distance <= DETECT_RADIUS then
-                           dodgeAwayFrom(obj.Position, rootPart, humanoid)
-                           task.wait(0.4) -- Khoảng nghỉ ngắn chống spam lực đẩy làm văng nhân vật
-                           break
-                        end
-                     end
-                  end
-               end)
-               task.wait(0.05)
-            end
-         end)
-      end
-   end,
-})
-   
+-- Đóng GUI
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0.9, 0, 0, 25)
+closeBtn.Position = UDim2.new(0.05, 0, 0, 250)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeBtn.Text = "❌ Đóng"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextScaled = true
+closeBtn.Parent = frame
+closeBtn.MouseButton1Click:Connect(function()
+    gui:Destroy()
+end)
+
+-- Toggle GUI bằng F9
+uis.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.F9 and not gameProcessed then
+        local gui = player.PlayerGui:FindFirstChild("NovaLight")
+        if gui then
+            gui.Enabled = not gui.Enabled
+        end
+    end
+end)
+
+print("✅ Nova Light loaded! Press F9 to toggle GUI.")
